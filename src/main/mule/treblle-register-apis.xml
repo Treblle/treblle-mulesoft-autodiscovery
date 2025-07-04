@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:java="http://www.mulesoft.org/schema/mule/java" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+	http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+
+
+  <configuration-properties file="mule-app.properties" doc:name="Configuration properties" />
+
+  
+  <!-- Main flow to list APIs and their policies, triggered by a scheduler -->
+  <flow name="api-policy-checker-flow" doc:id="f0e1d2c3-b4a5-6789-0123-456789abcdef">
+    <scheduler doc:name="Scheduler" doc:id="a1b2c3d4-e5f6-7890-1234-567890abcdef">
+      <scheduling-strategy>
+        <cron expression="0/15 * * * * ?" /> <!-- Run every 15 seconds -->
+      </scheduling-strategy>
+    </scheduler>
+
+    <logger level="INFO" doc:name="Flow Start Log" message="Scheduler triggered: Starting API policy check using Java." />
+
+    <java:new class="com.treblle.RegisterAPIClient" constructor="RegisterAPIClient()" target="registerAPIClient" />
+
+    <java:invoke instance="#[vars.registerAPIClient]" class="com.treblle.RegisterAPIClient" method="discoverApiPolicies(String, String, String)" target="listOfAPIs">
+      <java:args>#[{
+        clientId: '${clientId}',
+        clientSecret: '${clientSecret}',
+        organizationId: '${organizationId}'
+      }]</java:args>
+    </java:invoke>
+
+
+    <logger level="INFO" doc:name="Final Report" message="--- Final API Policy Report XXX (from Java): #[vars.listOfAPIs]" />
+
+
+  </flow>
+</mule>
