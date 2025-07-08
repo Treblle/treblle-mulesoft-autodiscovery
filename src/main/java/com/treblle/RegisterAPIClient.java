@@ -8,19 +8,25 @@ import java.net.http.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RegisterAPIClient {
 
     private static final String ANYPOINT_BASE_URL = "https://anypoint.mulesoft.com";
+    private static final String TREBLLE_API_DISCOVERY_URL = "https://autodiscovery.treblle.com/api/v1/mulesoft";
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private static final Logger logger = LoggerFactory.getLogger(RegisterAPIClient.class);
 
     public RegisterAPIClient() {
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
+        logger.info("Initializing RegisterAPIClient");
     }
 
     public String getAccessToken(String clientId, String clientSecret) throws IOException, InterruptedException {
@@ -152,49 +158,136 @@ public class RegisterAPIClient {
         }
     }
 
-    public List<Map<String, Object>> discoverApiPolicies(String clientId, String clientSecret, String organizationId)
+    public boolean sendApiDataToThirdParty(List<Map<String, Object>> apisWithPolicies, String apiKey)
             throws IOException, InterruptedException {
+
+        boolean sentSuccessfully = false;
+
+        if (apisWithPolicies == null || apisWithPolicies.isEmpty()) {
+            logger.info("No API data to send to third party endpoint.");
+            return true;
+        }
+
+        // Convert the data to JSON
+        String jsonPayload = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(apisWithPolicies);
+
+        logger.info("Sending API data to third party endpoint: " + TREBLLE_API_DISCOVERY_URL);
+
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
+                .uri(URI.create(TREBLLE_API_DISCOVERY_URL))
+                .header("Content-Type", "application/json")
+                .header("User-Agent", "MuleSoft-API-Discovery/1.0")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload));
+
+        // Add API key if provided
+        if (apiKey != null && !apiKey.isEmpty()) {
+            requestBuilder.header("x-api-key", apiKey);
+        }
+
+        HttpRequest request = requestBuilder.build();
+        try {
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                logger.info("Successfully sent API data to Treblle. Response code: " + response.statusCode());
+                logger.debug("Response body: " + response.body());
+                sentSuccessfully = true;
+            } else {
+                logger.error("Failed to send API data to Treblle. Response code: " + response.statusCode() +
+                        ", Response body: " + response.body());
+                throw new RuntimeException("Failed to send data to Treblle endpoint: " + response.statusCode() +
+                        " - " + response.body());
+            }
+        } catch (IOException | InterruptedException e) {
+            logger.error("Error sending API data to Treblle endpoint: " + e.getMessage(), e);
+            throw e;
+        }
+
+        return sentSuccessfully;
+    }
+
+    public String[] discoverApiPolicies(String clientId, String clientSecret, String organizationId,
+            String[] existingApiIds, String apiKey)
+            throws IOException, InterruptedException {
+
         List<Map<String, Object>> apisWithPolicies = new ArrayList<>();
         String accessToken = getAccessToken(clientId, clientSecret);
-        System.out.println("Access Token obtained successfully.");
+        logger.debug("Access Token obtained successfully.");
 
         List<Map<String, String>> environments = getEnvironments(accessToken, organizationId);
-        System.out.println("Found " + environments.size() + " environments.");
+        logger.debug("Found " + environments.size() + " environments.");
 
         for (Map<String, String> env : environments) {
             String envId = env.get("id");
             String envName = env.get("name");
-            System.out.println("Processing environment: " + envName + " (ID: " + envId + ")");
+            logger.debug("Processing environment: " + envName + " (ID: " + envId + ")");
 
             List<Map<String, String>> apis = getApis(accessToken, organizationId, envId);
-            System.out.println("  Found " + apis.size() + " APIs in " + envName + ".");
+            logger.debug("  Found " + apis.size() + " APIs in " + envName + ".");
 
             for (Map<String, String> api : apis) {
+
+                if (existingApiIds != null && Arrays.asList(existingApiIds).contains(api.get("id"))) {
+                    logger.info("Skipping existing API: " + api.get("assetId") + " (ID: " + api.get("id") + ")");
+                    continue; // Skip if the API is already in the list of existing APIs
+                }
+
                 String apiId = api.get("id");
                 String apiName = api.get("assetId");
-                System.out.println("    Checking policies for API: " + apiName + " (ID: " + apiId + ")");
+                logger.debug("    Checking policies for API: " + apiName + " (ID: " + apiId + ")");
 
                 List<Map<String, String>> policies = getPolicies(accessToken, organizationId, envId, apiId);
 
-                Map<String, Object> apiEntry = new HashMap<>();
-                apiEntry.put("apiName", apiName);
-                apiEntry.put("apiId", apiId);
-                apiEntry.put("environmentName", envName);
-                apiEntry.put("environmentId", envId);
-                apiEntry.put("appliedPolicies", policies); // The list of policy maps
-                apisWithPolicies.add(apiEntry);
+                for (Map<String, String> policy : policies) {
+                    logger.info("      Found policy: " + policy.get("name") + " (ID: " + policy.get("id") + ")");
+                }
 
-                System.out.println(" API - " + apiName + "-" + envName);
+                logger.debug(" API - " + apiName + "-" + envName);
 
                 for (Map<String, String> policy : policies) {
 
-                    System.out.println("Policies - " + policy.get("assetId") + "-" + policy.get("id") + "-" + "proxy");
+                    if ("treblle-policy".equals(policy.get("assetId"))) {
+
+                        Map<String, Object> apiEntry = new HashMap<>();
+                        apiEntry.put("apiName", apiName);
+                        apiEntry.put("apiId", apiId);
+                        apiEntry.put("environmentName", envName);
+                        apisWithPolicies.add(apiEntry);
+                        break; // Break after finding the Treblle policy
+                    }
 
                 }
             }
         }
 
-        return apisWithPolicies;
+        logger.info("Discovered APIs with Policies: " + apisWithPolicies.size() + " - XXXXX");
+
+        for (Map<String, Object> api : apisWithPolicies) {
+            logger.info("API: " + api.get("apiName") + " (ID: " + api.get("apiId") + ") - XXXXX");
+            logger.info("Environment: " + api.get("environmentName") + " (ID: " + api.get("environmentId")
+                    + ")");
+        }
+
+        // Prepare the list of API IDs to return
+        List<String> apiIds = new ArrayList<>();
+        apiIds.addAll(Arrays.asList(existingApiIds));
+
+        if (apisWithPolicies.size() > 0) {
+
+            logger.debug("Sending discovered API data to third party endpoint.");
+            if (!sendApiDataToThirdParty(apisWithPolicies, apiKey)) {
+                logger.error("Failed to send API data to third party endpoint.");
+            } else {
+                logger.debug("API data sent successfully to third party endpoint.");
+                for (Map<String, Object> apiEntry : apisWithPolicies) {
+                    String apiId = (String) apiEntry.get("apiId");
+                    apiIds.add(apiId);
+                }
+            }
+
+        }
+
+        return apiIds.toArray(new String[0]);
     }
 
     // Main method for testing outside Mule (optional)
@@ -202,10 +295,12 @@ public class RegisterAPIClient {
         String clientId = "change"; // Replace with your actual client ID
         String clientSecret = "change"; // Replace with your actual client secret
         String organizationId = "change"; // Replace with your actual organization ID
+        String apiKey = "change"; // Replace with your actual API key
 
         RegisterAPIClient client = new RegisterAPIClient();
+        String[] existingApiIds = { "2040d6246" }; // Replace with actual existing API IDs if needed
         try {
-            List<Map<String, Object>> result = client.discoverApiPolicies(clientId, clientSecret, organizationId);
+            String[] result = client.discoverApiPolicies(clientId, clientSecret, organizationId, existingApiIds, apiKey);
             System.out.println("\n--- Final API Policy Report ---");
             System.out.println(client.objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result));
         } catch (IOException | InterruptedException e) {
