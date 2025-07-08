@@ -24,7 +24,7 @@ This project is a Mule 4 application that connects to MuleSoft Anypoint Platform
 
 1. **Build the project:**
    ```sh
-   mvn clean package
+   mvn clean install
    ```
 2. **Deploy to Mule runtime:**  
    Deploy the packaged application (`.jar` or `.zip` in `target/`) to your Mule 4 runtime or Anypoint Runtime Manager.
