@@ -10,8 +10,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +22,7 @@ public class RegisterAPIClient {
 
     private static final String ANYPOINT_BASE_URL = "https://anypoint.mulesoft.com";
     private static final String TREBLLE_API_DISCOVERY_URL = "https://autodiscovery.treblle.com/api/v1/mulesoft";
+    private static final String TREBLLE_POLICY_NAME = "treblle-policy";
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private static final Logger logger = LoggerFactory.getLogger(RegisterAPIClient.class);
@@ -46,6 +50,7 @@ public class RegisterAPIClient {
             JsonNode rootNode = objectMapper.readTree(response.body());
             return rootNode.get("access_token").asText();
         } else {
+            logger.error("Failed to get access token: {} - {}", response.statusCode(), response.body());
             throw new RuntimeException(
                     "Failed to get access token: " + response.statusCode() + " - " + response.body());
         }
@@ -76,6 +81,7 @@ public class RegisterAPIClient {
             }
             return environments;
         } else {
+            logger.error("Failed to get environments: {} - {}", response.statusCode(), response.body());
             throw new RuntimeException(
                     "Failed to get environments: " + response.statusCode() + " - " + response.body());
         }
@@ -114,6 +120,8 @@ public class RegisterAPIClient {
 
             return apis;
         } else {
+            logger.error("Failed to get APIs for environment {}: {} - {}", environmentId, response.statusCode(),
+                    response.body());
             throw new RuntimeException("Failed to get APIs for environment " + environmentId + ": "
                     + response.statusCode() + " - " + response.body());
         }
@@ -153,8 +161,45 @@ public class RegisterAPIClient {
             }
             return policies;
         } else {
+            logger.error("Failed to get policies for API {}: {} - {}", apiId, response.statusCode(), response.body());
             throw new RuntimeException(
                     "Failed to get policies for API " + apiId + ": " + response.statusCode() + " - " + response.body());
+        }
+    }
+
+    public boolean hasAutomatedTrebllePolicy(String accessToken, String organizationId, String environmentId)
+            throws IOException, InterruptedException {
+
+        String url = ANYPOINT_BASE_URL + "/apimanager/api/v1/organizations/" + organizationId
+                + "/automated-policies?environmentId=" + environmentId;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Authorization", "Bearer " + accessToken)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() == 200) {
+            JsonNode rootNode = objectMapper.readTree(response.body());
+            JsonNode automatedPoliciesNode = rootNode.get("automatedPolicies");
+            if (automatedPoliciesNode != null && automatedPoliciesNode.isArray()) {
+                for (JsonNode policyNode : automatedPoliciesNode) {
+                    JsonNode assetIdNode = policyNode.get("assetId");
+                    if (assetIdNode != null && TREBLLE_POLICY_NAME.equals(assetIdNode.asText())) {
+                        logger.info("Found automated treblle-policy in environment: " + environmentId);
+                        return true;
+                    }
+                }
+            }
+            logger.info("No automated treblle-policy found in environment: " + environmentId);
+            return false;
+        } else {
+            logger.error("Failed to get automated policies for environment {}: {} - {}", environmentId,
+                    response.statusCode(), response.body());
+            throw new RuntimeException("Failed to get automated policies for environment " + environmentId + ": "
+                    + response.statusCode() + " - " + response.body());
         }
     }
 
@@ -172,6 +217,7 @@ public class RegisterAPIClient {
         String jsonPayload = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(apisWithPolicies);
 
         logger.info("Sending API data to third party endpoint: " + TREBLLE_API_DISCOVERY_URL);
+        logger.debug("Payload: " + jsonPayload);
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(TREBLLE_API_DISCOVERY_URL))
@@ -185,6 +231,7 @@ public class RegisterAPIClient {
         }
 
         HttpRequest request = requestBuilder.build();
+
         try {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
@@ -211,83 +258,126 @@ public class RegisterAPIClient {
             throws IOException, InterruptedException {
 
         List<Map<String, Object>> apisWithPolicies = new ArrayList<>();
+
         String accessToken = getAccessToken(clientId, clientSecret);
         logger.debug("Access Token obtained successfully.");
 
         List<Map<String, String>> environments = getEnvironments(accessToken, organizationId);
-        logger.debug("Found " + environments.size() + " environments.");
+        logger.debug("Found {} environments.", environments.size());
+
+        Set<String> existingApiIdSet;
+        if (existingApiIds != null) {
+            existingApiIdSet = new HashSet<>(Arrays.asList(existingApiIds));
+        } else {
+            existingApiIdSet = new HashSet<>();
+        }
 
         for (Map<String, String> env : environments) {
+
             String envId = env.get("id");
             String envName = env.get("name");
-            logger.debug("Processing environment: " + envName + " (ID: " + envId + ")");
+            logger.info("Processing environment: {} (ID: {})", envName, envId);
 
             List<Map<String, String>> apis = getApis(accessToken, organizationId, envId);
-            logger.debug("  Found " + apis.size() + " APIs in " + envName + ".");
+            logger.debug("Found {} APIs in {}.", apis.size(), envName);
 
-            for (Map<String, String> api : apis) {
-
-                if (existingApiIds != null && Arrays.asList(existingApiIds).contains(api.get("id"))) {
-                    logger.info("Skipping existing API: " + api.get("assetId") + " (ID: " + api.get("id") + ")");
-                    continue; // Skip if the API is already in the list of existing APIs
+            if (hasAutomatedTrebllePolicy(accessToken, organizationId, envId)) {
+                for (Map<String, String> api : apis) {
+                    processApi(api, envName, envId, existingApiIdSet, apisWithPolicies);
                 }
+            } else {
+                for (Map<String, String> api : apis) {
+                    String apiId = api.get("id");
+                    String apiName = api.get("assetId");
 
-                String apiId = api.get("id");
-                String apiName = api.get("assetId");
-                logger.debug("    Checking policies for API: " + apiName + " (ID: " + apiId + ")");
-
-                List<Map<String, String>> policies = getPolicies(accessToken, organizationId, envId, apiId);
-
-                for (Map<String, String> policy : policies) {
-                    logger.info("      Found policy: " + policy.get("name") + " (ID: " + policy.get("id") + ")");
-                }
-
-                logger.debug(" API - " + apiName + "-" + envName);
-
-                for (Map<String, String> policy : policies) {
-
-                    if ("treblle-policy".equals(policy.get("assetId"))) {
-
-                        Map<String, Object> apiEntry = new HashMap<>();
-                        apiEntry.put("apiName", apiName);
-                        apiEntry.put("apiId", apiId);
-                        apiEntry.put("environmentName", envName);
-                        apisWithPolicies.add(apiEntry);
-                        break; // Break after finding the Treblle policy
+                    if (existingApiIdSet.contains(apiId)) {
+                        logger.info("Skipping existing API: {} (ID: {})", apiName, apiId);
+                        continue;
                     }
 
+                    logger.debug("Checking policies for API: {} (ID: {})", apiName, apiId);
+
+                    List<Map<String, String>> policies = getPolicies(accessToken, organizationId, envId, apiId);
+
+                    for (Map<String, String> policy : policies) {
+                        logger.info("Found policy: {} (ID: {})",
+                                policy.get("name"), policy.get("id"));
+                    }
+
+                    boolean treblleFound = false;
+                    for (Map<String, String> policy : policies) {
+                        if (TREBLLE_POLICY_NAME.equals(policy.get("assetId"))) {
+                            logger.info("Found treblle-policy for API: {} (ID: {})", apiName, apiId);
+                            treblleFound = true;
+                            break;
+                        }
+                    }
+
+                    if (treblleFound) {
+                        addApiEntry(apiName, apiId, envName, envId, apisWithPolicies);
+                    }
                 }
             }
         }
 
-        logger.info("Discovered APIs with Policies: " + apisWithPolicies.size() + " - XXXXX");
+        logger.info("Discovered APIs with Policies: {}", apisWithPolicies.size());
 
         for (Map<String, Object> api : apisWithPolicies) {
-            logger.info("API: " + api.get("apiName") + " (ID: " + api.get("apiId") + ") - XXXXX");
-            logger.info("Environment: " + api.get("environmentName") + " (ID: " + api.get("environmentId")
-                    + ")");
+            logger.info("API Name: {}, API ID: {}, Environment Name: {}, Environment ID: {}",
+                    api.get("apiName"), api.get("apiId"), api.get("environmentName"), api.get("environmentId"));
         }
 
-        // Prepare the list of API IDs to return
         List<String> apiIds = new ArrayList<>();
-        apiIds.addAll(Arrays.asList(existingApiIds));
+        if (existingApiIds != null) {
+            apiIds.addAll(Arrays.asList(existingApiIds));
+        }
 
-        if (apisWithPolicies.size() > 0) {
-
+        if (!apisWithPolicies.isEmpty()) {
             logger.debug("Sending discovered API data to third party endpoint.");
             if (!sendApiDataToThirdParty(apisWithPolicies, apiKey)) {
                 logger.error("Failed to send API data to third party endpoint.");
             } else {
                 logger.debug("API data sent successfully to third party endpoint.");
                 for (Map<String, Object> apiEntry : apisWithPolicies) {
-                    String apiId = (String) apiEntry.get("apiId");
-                    apiIds.add(apiId);
+                    apiIds.add((String) apiEntry.get("apiId"));
                 }
             }
-
         }
 
         return apiIds.toArray(new String[0]);
+    }
+
+    /**
+     * Processes an API by adding it to the list if it does not exist already.
+     */
+    private void processApi(Map<String, String> api, String envName, String envId, Set<String> existingApiIdSet,
+            List<Map<String, Object>> apisWithPolicies) {
+
+        String apiId = api.get("id");
+        String apiName = api.get("assetId");
+
+        if (existingApiIdSet.contains(apiId)) {
+            logger.info("Skipping existing API: {} (ID: {})", apiName, apiId);
+            return;
+        }
+
+        logger.debug("API - {}-{}", apiName, envName);
+
+        addApiEntry(apiName, apiId, envName, envId, apisWithPolicies);
+    }
+
+    /**
+     * Adds a new API entry to the collection.
+     */
+    private void addApiEntry(String apiName, String apiId, String envName, String envId,
+            List<Map<String, Object>> apisWithPolicies) {
+
+        Map<String, Object> apiEntry = new HashMap<>();
+        apiEntry.put("apiName", apiName);
+        apiEntry.put("apiId", apiId);
+        apiEntry.put("environmentName", envName);
+        apiEntry.put("environmentId", envId);
+        apisWithPolicies.add(apiEntry);
     }
 
     // Main method for testing outside Mule (optional)
@@ -300,7 +390,8 @@ public class RegisterAPIClient {
         RegisterAPIClient client = new RegisterAPIClient();
         String[] existingApiIds = { "2040d6246" }; // Replace with actual existing API IDs if needed
         try {
-            String[] result = client.discoverApiPolicies(clientId, clientSecret, organizationId, existingApiIds, apiKey);
+            String[] result = client.discoverApiPolicies(clientId, clientSecret, organizationId, existingApiIds,
+                    apiKey);
             System.out.println("\n--- Final API Policy Report ---");
             System.out.println(client.objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result));
         } catch (IOException | InterruptedException e) {
