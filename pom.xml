@@ -67,12 +67,6 @@
             <artifactId>log4j-api</artifactId>
             <version>${log4j2.version}</version>
         </dependency>
-        <dependency>
-            <groupId>org.mule.connectors</groupId>
-            <artifactId>mule-objectstore-connector</artifactId>
-            <version>1.2.3</version>
-            <classifier>mule-plugin</classifier>
-          </dependency>
         <!-- Important: If your RegisterAPIClient class relies on HTTP client libraries for making
         the API calls,
              you might need to add them here, e.g., Apache HttpClient or OkHttp. -->

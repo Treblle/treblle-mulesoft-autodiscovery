@@ -253,8 +253,7 @@ public class RegisterAPIClient {
         return sentSuccessfully;
     }
 
-    public String[] discoverApiPolicies(String clientId, String clientSecret, String organizationId,
-            String[] existingApiIds, String apiKey)
+    public String[] discoverApiPolicies(String clientId, String clientSecret, String organizationId, String apiKey)
             throws IOException, InterruptedException {
 
         List<Map<String, Object>> apisWithPolicies = new ArrayList<>();
@@ -264,13 +263,6 @@ public class RegisterAPIClient {
 
         List<Map<String, String>> environments = getEnvironments(accessToken, organizationId);
         logger.debug("Found {} environments.", environments.size());
-
-        Set<String> existingApiIdSet;
-        if (existingApiIds != null) {
-            existingApiIdSet = new HashSet<>(Arrays.asList(existingApiIds));
-        } else {
-            existingApiIdSet = new HashSet<>();
-        }
 
         for (Map<String, String> env : environments) {
 
@@ -283,17 +275,12 @@ public class RegisterAPIClient {
 
             if (hasAutomatedTrebllePolicy(accessToken, organizationId, envId)) {
                 for (Map<String, String> api : apis) {
-                    processApi(api, envName, envId, existingApiIdSet, apisWithPolicies);
+                    processApi(api, envName, envId, apisWithPolicies);
                 }
             } else {
                 for (Map<String, String> api : apis) {
                     String apiId = api.get("id");
                     String apiName = api.get("assetId");
-
-                    if (existingApiIdSet.contains(apiId)) {
-                        logger.info("Skipping existing API: {} (ID: {})", apiName, apiId);
-                        continue;
-                    }
 
                     logger.debug("Checking policies for API: {} (ID: {})", apiName, apiId);
 
@@ -328,9 +315,6 @@ public class RegisterAPIClient {
         }
 
         List<String> apiIds = new ArrayList<>();
-        if (existingApiIds != null) {
-            apiIds.addAll(Arrays.asList(existingApiIds));
-        }
 
         if (!apisWithPolicies.isEmpty()) {
             logger.debug("Sending discovered API data to third party endpoint.");
@@ -350,16 +334,11 @@ public class RegisterAPIClient {
     /**
      * Processes an API by adding it to the list if it does not exist already.
      */
-    private void processApi(Map<String, String> api, String envName, String envId, Set<String> existingApiIdSet,
+    private void processApi(Map<String, String> api, String envName, String envId,
             List<Map<String, Object>> apisWithPolicies) {
 
         String apiId = api.get("id");
         String apiName = api.get("assetId");
-
-        if (existingApiIdSet.contains(apiId)) {
-            logger.info("Skipping existing API: {} (ID: {})", apiName, apiId);
-            return;
-        }
 
         logger.debug("API - {}-{}", apiName, envName);
 
@@ -388,10 +367,8 @@ public class RegisterAPIClient {
         String apiKey = "change"; // Replace with your actual API key
 
         RegisterAPIClient client = new RegisterAPIClient();
-        String[] existingApiIds = { "2040d6246" }; // Replace with actual existing API IDs if needed
         try {
-            String[] result = client.discoverApiPolicies(clientId, clientSecret, organizationId, existingApiIds,
-                    apiKey);
+            String[] result = client.discoverApiPolicies(clientId, clientSecret, organizationId, apiKey);
             System.out.println("\n--- Final API Policy Report ---");
             System.out.println(client.objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(result));
         } catch (IOException | InterruptedException e) {

@@ -1,52 +1,31 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:os="http://www.mulesoft.org/schema/mule/os" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
                           http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd
-                          http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
 	http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
 
   <configuration-properties file="mule-app.properties" doc:name="Configuration properties" />
 
-  <os:object-store name="apistore" persistent="true" />
-
   <flow name="api-policy-checker-flow" doc:id="f0e1d2c3-b4a5-6789-0123-456789abcdef">
     <scheduler doc:name="Scheduler" doc:id="a1b2c3d4-e5f6-7890-1234-567890abcdef">
       <scheduling-strategy>
-        <cron expression="0/45 * * * * ?" />
+        <cron expression="0 0 0 * * ?" />
       </scheduling-strategy>
     </scheduler>
 
     <logger level="INFO" message="# Starting the scheduler." />
-
-    <set-variable variableName="initList" doc:name="Set String Array 1" value="#[[]]"/>
     
-    <os:retrieve key="apiList" objectStore="apistore" target="apiList">
-      <os:default-value>
-        #[vars.initList]
-      </os:default-value>
-    </os:retrieve>
-
-
     <java:new class="com.treblle.RegisterAPIClient" constructor="RegisterAPIClient()" target="registerAPIClient" />
 
-    <java:invoke instance="#[vars.registerAPIClient]" class="com.treblle.RegisterAPIClient" method="discoverApiPolicies(String, String, String, String[], String)" target="listOfAPIs">
+    <java:invoke instance="#[vars.registerAPIClient]" class="com.treblle.RegisterAPIClient" method="discoverApiPolicies(String, String, String, String)" target="listOfAPIs">
       <java:args>#[{
                 clientId: '${clientId}',
                 clientSecret: '${clientSecret}',
                 organizationId: '${organizationId}',
-                existingApiIds: vars.apiList,
                 apiKey: '${apiKey}'
             }]</java:args>
     </java:invoke>
 
-    <os:store key="apiList" failIfPresent="false" failOnNullValue="false" objectStore="apistore">
-      <os:value>
-        <![CDATA[
-        #[vars.listOfAPIs]
-        ]]>
-      </os:value>
-    </os:store>
-
-    <logger level="INFO" message="# End - Updated Object Store." />
+    <logger level="INFO" message="# End - API data sent to Treblle." />
 
   </flow>
 </mule>
