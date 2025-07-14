@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    
+
     <groupId>com.mycompany</groupId>
     <artifactId>treblle-register-apis</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>mule-application</packaging>
-    
+
     <name>treblle-register-apis</name>
-    
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -16,26 +18,22 @@
         <slf4j.version>1.7.36</slf4j.version>
         <log4j2.version>2.17.1</log4j2.version>
     </properties>
-    
+
     <dependencies>
-        <!-- Jackson dependencies are good for JSON processing in Java components -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.15.2</version>
-            <!-- Use a compatible version -->
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
             <version>2.15.2</version>
-            <!-- Use a compatible version -->
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
             <version>2.15.2</version>
-            <!-- Use a compatible version -->
         </dependency>
         <dependency>
             <groupId>org.mule.module</groupId>
@@ -43,7 +41,6 @@
             <version>1.2.13</version>
             <classifier>mule-plugin</classifier>
         </dependency>
-        <!-- Add these to your <dependencies> section in pom.xml -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -51,35 +48,21 @@
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
-            <!-- CORRECTED: Changed log44j to log4j -->
             <artifactId>log4j-slf4j-impl</artifactId>
             <version>${log4j2.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
-            <!-- CORRECTED: Changed log44j to log4j -->
             <artifactId>log4j-core</artifactId>
             <version>${log4j2.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
-            <!-- CORRECTED: Changed log44j to log4j -->
             <artifactId>log4j-api</artifactId>
             <version>${log4j2.version}</version>
         </dependency>
-        <!-- Important: If your RegisterAPIClient class relies on HTTP client libraries for making
-        the API calls,
-             you might need to add them here, e.g., Apache HttpClient or OkHttp. -->
-        <!-- Example:
-        <dependency>
-            <groupId>org.apache.httpcomponents</groupId>
-            <artifactId>httpclient</artifactId>
-            <version>4.5.13</version>
-        </dependency>
-        -->
-       
     </dependencies>
-    
+
     <build>
         <plugins>
             <plugin>
@@ -92,7 +75,7 @@
                 <artifactId>mule-maven-plugin</artifactId>
                 <version>${mule.maven.plugin.version}</version>
                 <extensions>true</extensions>
-                <configuration/>
+                <configuration />
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -138,5 +121,5 @@
             </snapshots>
         </pluginRepository>
     </pluginRepositories>
-    
+
 </project>
